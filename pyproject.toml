@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "etc-microservice"
+name = "MUCHOSpec-ETC"
 version = "0.1.0"
-description = "Add your description here"
+description = "Exposure Time Calculator"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -17,4 +17,4 @@ dependencies = [
 
 
 [project.scripts]
-start-microservice = "etc_microservice.main:main"
+start-microservice = "MUCHOSpec_ETC.main:main"

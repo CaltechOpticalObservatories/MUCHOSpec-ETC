@@ -191,7 +191,7 @@ def run_etc(req: SNRRequest) -> JsonValue:
 
 def main():
     import uvicorn
-    uvicorn.run("etc_microservice.main:app", host="0.0.0.0", port=8000, reload=True, reload_dirs=["src"])
+    uvicorn.run("MUCHOSpec_ETC.main:app", host="0.0.0.0", port=8000, reload=True, reload_dirs=["src"])
 
 if __name__ == "__main__":
     main()

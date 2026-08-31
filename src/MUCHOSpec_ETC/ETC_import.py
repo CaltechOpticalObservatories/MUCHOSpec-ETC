@@ -23,11 +23,12 @@ from os import path
 from . import ETC_config as p
 
 ETCdir = path.dirname(p.__file__)
-sourcesdir = ETCdir + "/sources/"
+datadir = ETCdir + "/data/"
+sourcesdir = datadir + "/sources/"
 if CSVdir is None:
-    CSVdir = ETCdir + "/CSV/"
+    CSVdir = datadir + "/CSV/"
 PSFsum2DFile = (
-    ETCdir + "/PSFsum2D.pkl"
+    datadir + "/PSFsum2D.pkl"
 )  # pre-tabulated integral of PSF over slit and side slices
 
 # Check config file inputs are valid and make some derived parameters
