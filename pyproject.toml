@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "etc-microservice"
 version = "0.1.0"
@@ -13,4 +17,4 @@ dependencies = [
 
 
 [project.scripts]
-start-microservice = "main:main"
+start-microservice = "etc_microservice.main:main"
