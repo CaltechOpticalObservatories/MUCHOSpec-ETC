@@ -1,9 +1,0 @@
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: etc-microservice
-    ports:
-      - "8000:8000"
-    restart: unless-stopped
