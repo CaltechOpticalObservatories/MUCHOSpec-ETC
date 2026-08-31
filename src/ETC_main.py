@@ -15,9 +15,9 @@
 from numpy import arange, array, log, vstack, where
 from scipy import optimize
 
-from ETC_arguments import *
-from ETC_config import *
-from ETC_import import *
+from .ETC_arguments import *
+from .ETC_config import *
+from .ETC_import import *
 
 """ LOAD DATA that doesn't depend on user input """
 
@@ -49,7 +49,7 @@ def main(
               This currently overrides args.skymag which is still required by argparse.
     """
 
-    from ETC_config import channels
+    from .ETC_config import channels
 
     # Only bother with channels being used for SNR to save time
     if plotSNR or plotslit:
@@ -476,7 +476,7 @@ if __name__ == "__main__":
         parser.error(e)  # Exit gracefully
 
     if args.timer:
-        from timer import Timer
+        from .timer import Timer
 
         tt = Timer()
         tt.start()

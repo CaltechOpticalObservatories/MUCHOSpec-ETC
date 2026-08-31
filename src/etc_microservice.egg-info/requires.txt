@@ -1,0 +1,4 @@
+astropy>=8.0.1
+fastapi[standard]>=0.141.1
+scipy==1.14.1
+synphot>=1.7.0

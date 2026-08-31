@@ -13,14 +13,14 @@ from scipy.signal import convolve, peak_widths
 from synphot import Observation, SourceSpectrum, SpectralElement  # SLOW IMPORT!
 from synphot.models import Box1D, ConstFlux1D, Empirical1D, Gaussian1D
 
-from ETC_config import *
+from .ETC_config import *
 
 vegaspec = SourceSpectrum.from_vega()
 
 # Setup paths to data that comes with the ETC package
 from os import path
 
-import ETC_config as p
+from . import ETC_config as p
 
 ETCdir = path.dirname(p.__file__)
 sourcesdir = ETCdir + "/sources/"

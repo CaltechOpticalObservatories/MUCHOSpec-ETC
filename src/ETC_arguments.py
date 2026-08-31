@@ -3,8 +3,8 @@ from sys import path
 
 from numpy.ma import is_masked
 
-from ETC_config import slitmodes
-from ETC_import import sourcesdir
+from .ETC_config import slitmodes
+from .ETC_import import sourcesdir
 
 
 # Hack to avoid exiting the program when there's a parser error
@@ -57,7 +57,7 @@ def posint(value):  # require > 0
 
 
 def slitfloat(value):  # require slit in slit_w_range
-    from ETC_config import slit_w_range
+    from .ETC_config import slit_w_range
 
     fvalue = float(value)
     slitmin, slitmax = slit_w_range.to("arcsec").value
@@ -68,7 +68,7 @@ def slitfloat(value):  # require slit in slit_w_range
 
 SNRparam = parser.add_argument_group("SNR parameters")
 
-from ETC_config import channels
+from .ETC_config import channels
 
 help = "Spectrograph channel used for SNR"
 parser.add_argument("channel", type=str, choices=channels, help=help)
@@ -349,7 +349,7 @@ def check_inputs_add_units(args):
         )  # override observed source "size" with something very big
 
     # Check wavelength range is (min, max) and within specified channel
-    from ETC_config import channelRange
+    from .ETC_config import channelRange
 
     if args.wrange[0] >= args.wrange[1]:
         parser.error("Wavelength range must be in form [min, max]")
