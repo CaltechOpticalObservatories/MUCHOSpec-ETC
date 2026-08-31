@@ -6,12 +6,12 @@ from astropy.units import Quantity
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, JsonValue
 
-from ETC_arguments import (
+from .ETC_arguments import (
     ArgumentParserError,
     check_inputs_add_units,
     noQuitETCparser,
 )
-from ETC_main import main as run_etc_main
+from .ETC_main import main as run_etc_main
 
 
 class ETCMode(str, Enum):
@@ -187,3 +187,11 @@ def run_etc(req: SNRRequest) -> JsonValue:
 #   "extmodel": "mwavg",
 #   "extended": null
 # }
+
+
+def main():
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+if __name__ == "__main__":
+    main()

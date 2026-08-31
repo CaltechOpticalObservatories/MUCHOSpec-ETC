@@ -10,3 +10,7 @@ dependencies = [
     "scipy==1.14.1",
     "synphot>=1.7.0",
 ]
+
+
+[project.scripts]
+start-microservice = "main:main"
