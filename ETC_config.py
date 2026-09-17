@@ -19,8 +19,8 @@ slitmodes = {'SET':[.1,10.],
 telescope_D = 508.*u.cm  #Diameter
 Obscuration = 0.3 # As a ratio of M1
 
-moffat_beta=2.9  # .npz file for this beta must exist
-# moffat_beta=3.4
+# moffat_beta=2.9  # .npz file for this beta must exist
+moffat_beta=3.4
 # moffat_beta=4.7
 
 # Paths to data for this instrument

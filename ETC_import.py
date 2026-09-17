@@ -24,10 +24,6 @@ ETCdir = path.dirname(p.__file__)
 sourcesdir = ETCdir+'/sources/'
 if CSVdir is None: CSVdir = ETCdir+'/CSV/'
 
-moffile = f"moffat_table_beta{float_to_pstring(moffat_beta)}.npz"
-Moffat_table = load_moffat_table(moffile)
-
-
 # Check config file inputs are valid and make some derived parameters
 
 # Unit equivalence
@@ -1027,6 +1023,8 @@ def float_to_pstring(value):
         integer_part += 1 if rounded >= 0 else -1
     return f"{integer_part}p{decimal_part:03d}"
 
+moffile = f"moffat_table_beta{float_to_pstring(moffat_beta)}.npz"
+Moffat_table = load_moffat_table(moffile)
 
 ## USE THIS TO GENERATE AN INTEGRAL TABLE FOR A NEW VALUE OF MOFFAT_BETA
 # print(moffile)
