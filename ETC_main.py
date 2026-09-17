@@ -136,7 +136,7 @@ def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skys
 
     # Solve this function to find slitwidth that gives requested slit loss
     def efffunc(slitw_arcsec, loss=1.):
-        eff = slitEfficiency(slitw_arcsec*u.arcsec ,slit_h ,args.seeing[0] ,pivot=args.seeing[1] ,optics=throughput_slicerOptics)
+        eff = slitEfficiency(slitw_arcsec*u.arcsec ,args.seeing[0] ,pivot=args.seeing[1] ,optics=throughput_slicerOptics)
         if args.noslicer: eff = eff['center']
         else:             eff = eff['total']
         return eff(args.wrange).mean() - (1-loss)  # solver will set this line to 0

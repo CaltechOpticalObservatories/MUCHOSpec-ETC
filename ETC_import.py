@@ -2,8 +2,7 @@
 #TODO: remove asserts
 #TODO: rewite LSF convolution using astropy.convolution?
 
-#import numpy as np
-from numpy import array, arange, pi, hstack, vstack
+import numpy as np
 from pickle import load as pload  # Only needed in point source case
 from synphot import SourceSpectrum, SpectralElement  # SLOW IMPORT!
 from synphot.models import Empirical1D, Gaussian1D, Box1D, ConstFlux1D
@@ -12,6 +11,7 @@ import synphot.units as uu  # used in main code, not this file
 from functools import cache
 from copy import deepcopy
 from scipy.signal import convolve, peak_widths
+from scipy.special import betainc
 
 from ETC.ETC_config import *
 
@@ -23,7 +23,10 @@ from os import path
 ETCdir = path.dirname(p.__file__)
 sourcesdir = ETCdir+'/sources/'
 if CSVdir is None: CSVdir = ETCdir+'/CSV/'
-PSFsum2DFile = ETCdir+'/PSFsum2D.pkl' #pre-tabulated integral of PSF over slit and side slices
+
+moffile = f"moffat_table_beta{float_to_pstring(moffat_beta)}.npz"
+Moffat_table = load_moffat_table(moffile)
+
 
 # Check config file inputs are valid and make some derived parameters
 
@@ -39,7 +42,7 @@ for k in channels:
 totalRange = u.Quantity([v for v in channelRange.values()])
 totalRange = u.Quantity([totalRange.min(),totalRange.max()])
 
-telescope_Area = (1. - Obscuration**2)*pi*(telescope_D/2.)**2 #Collecting area 
+telescope_Area = (1. - Obscuration**2)*np.pi*(telescope_D/2.)**2 #Collecting area 
 
 
 # Function definitions
@@ -84,7 +87,7 @@ def rangeQ(q0, q1, dq=None):
     v1 = q1.to_value(unit)    
     dv = dq.to_value(unit)
         
-    return arange(v0,v1,dv)*unit
+    return np.arange(v0,v1,dv)*unit
 
 
 def LoadCSVSpec(filename ,CSVdir=CSVdir):
@@ -96,6 +99,10 @@ def seeingLambda(w ,FWHM ,pivot=500.*u.nm):
     assert u.get_physical_type(w) == 'length', "w must have units of length"
     #pivot = 500.*u.nm
     return (FWHM*(pivot/w)**0.2).to('arcsec')  # Force units to simplify
+
+def moffat_alpha(fwhm, beta):
+    """Convert FWHM and Moffat index beta to scale parameter alpha."""
+    return (fwhm / 2) / np.sqrt(2**(1/beta) - 1)
 
 def makeSource(args):
     ''' Load the source model, mix with astrophysics, normalize.
@@ -207,7 +214,7 @@ def makeLSFkernel(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4
     # Make wavelength array for sampling kernel
     ## KERNEL RANGE MUST HAVE 0 IN THE EXACT CENTER (need odd array length)
     xk = rangeQ(0.*dlambda,kernel_range+dlambda,dlambda)
-    xk = hstack((-xk[::-1],xk[1:]))  # Symmetrizes range, e.g. [-2,-1,0,1,2]
+    xk = np.hstack((-xk[::-1],xk[1:]))  # Symmetrizes range, e.g. [-2,-1,0,1,2]
 
     # Unitless arrays for use with convolve; BEWARE of boundary behavior
     # convolve(mode=same) matches size of 1st argument
@@ -272,7 +279,7 @@ def makeLSFkernel_slicer(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_f
     # Make wavelength array for sampling kernel
     ## KERNEL RANGE MUST HAVE 0 IN THE EXACT CENTER (need odd array length)
     xk = rangeQ(0.*dlambda,kernel_range+dlambda,dlambda)
-    xk = hstack((-xk[::-1],xk[1:]))  # Symmetrizes range, e.g. [-2,-1,0,1,2]
+    xk = np.hstack((-xk[::-1],xk[1:]))  # Symmetrizes range, e.g. [-2,-1,0,1,2]
 
     # Unitless arrays for use with convolve; BEWARE of boundary behavior
     # convolve(mode=same) matches size of 1st argument
@@ -396,16 +403,10 @@ def convolveLSF(LSF, spectrum ,ch ,kernel_range_factor=4. ,wrange_=None):
         raise Exception("Unsupported input spectrum class")
         
     return newspec
-def Moffat_scalefree(x,y ,beta=moffat_beta):
-    '''Moffat PSF profile; x and y are dimensionless; not normalized here - we do that after tabulating'''
-    return (1.+x**2+y**2)**(-beta)
 
-# TABULATED IN PSF-profile-scratch.ipynb
-PSFsum2D = pload(open(PSFsum2DFile ,'rb'))
-from scipy.interpolate import dfitpack
-
+# UNUSED - utility only
 from scipy.special import gamma
-def sharpess_scalefree(theta, x=0., beta=moffat_beta):
+def sharpness_scalefree(theta, beta, x=0.):
     ''' 1D sharpness of seeing-limited PSF (Moffat) along spatial direction
     x = horizontal offset; changes y projection for e.g. side image slice
     '''
@@ -418,34 +419,17 @@ def sharpess_scalefree(theta, x=0., beta=moffat_beta):
 
     return integral2/integral1**2
 
-def evaluate2Dinterp(f, x, y):
-    '''Trick for quickly evaluating 2D interpolation on (x,y) pairs, not a 2D grid'''
-    # https://stackoverflow.com/questions/47087109/evaluate-the-output-from-scipy-2d-interpolation-along-a-curve
-    return dfitpack.bispeu(f.tck[0], f.tck[1], f.tck[2], f.tck[3], f.tck[4], x, y)[0]
+def slit_fraction(w_over_theta, beta=moffat_beta):
+    """Fraction of Moffat PSF transmitted through slit of width w centered on source."""
+    xi = w_over_theta / 2
+    x = xi**2 / (1 + xi**2)
+    # regularized incomplete Beta function
+    return betainc(0.5, beta - 1, x)
 
-def slitFractions(lam, w ,h ,FWHM ,pivot=500.*u.nm):
-    '''Compute fraction of PSF passing through slit and side slices. Assumes Moffat PSF'''
-    
-    ts = moffat_theta_factor * seeingLambda(lam ,FWHM ,pivot=pivot)  #specific to Moffat PSF
-    #if ts.isscalar: ts=[ts]
-
-    wts=(w/ts).value
-    hts=(h/ts).value
-
-    if hasattr(hts, '__iter__'):
-        wts=array([wts]*len(hts))  # copy into a list if h is a list
-        
-    centerFrac = evaluate2Dinterp(PSFsum2D, wts/2., hts/2.)
-    totalFrac = evaluate2Dinterp(PSFsum2D, 3.*wts/2., hts/2.)
-
-    sideFrac = (totalFrac-centerFrac)/2.
-    return {'total':totalFrac, 'center':centerFrac, 'side':sideFrac}
-
-def slitEfficiency(w ,h ,FWHM ,pivot=500.*u.nm ,optics=None):
+def slitEfficiency(w ,FWHM ,pivot=500.*u.nm ,optics=None):
     '''Compute fraction of PSF passing through slit and side slices, assuming Moffat PSF'''
     '''
     w: slit width (unitful; angular projection on sky)
-    h: slit length (height) (unitful; angular projection on sky)
     FWHM: seeing at pivot (unitful)
     optics: Bandpass object for slicer side optics
 
@@ -455,11 +439,10 @@ def slitEfficiency(w ,h ,FWHM ,pivot=500.*u.nm ,optics=None):
     # Slow function of wavelength so choose 10nm sampling
     lams = rangeQ(totalRange[0],totalRange[1],10*u.nm)
 
-    ts = moffat_theta_factor * seeingLambda(lams ,FWHM ,pivot=pivot)  #specific to Moffat PSF
-    #if ts.isscalar: ts=[ts]
-        
-    centerFrac = evaluate2Dinterp(PSFsum2D, w/ts/2., h/ts/2.)
-    totalFrac = evaluate2Dinterp(PSFsum2D, 3.*w/ts/2., h/ts/2.)
+    alphas = moffat_alpha(seeingLambda(lams ,FWHM ,pivot=500*u.nm), moffat_beta)
+
+    centerFrac = slit_fraction((w/alphas).value, beta=moffat_beta)
+    totalFrac = slit_fraction(3*(w/alphas).value, beta=moffat_beta)
 
     sideFrac = (totalFrac-centerFrac)/2.
 
@@ -473,6 +456,7 @@ def slitEfficiency(w ,h ,FWHM ,pivot=500.*u.nm ,optics=None):
     throughput_slicer['total'] = SpectralElement(Empirical1D, points=lams, lookup_table=totalFrac)
 
     return throughput_slicer
+
 
 def profileOnDetector(channel ,slit_w ,seeing ,pivot ,lams ,spatial_range=None ,bin_spatial=1):
     ''' USE TABULATED MOFFAT INTEGRAL TO BACK OUT PIXELIZED SPATIAL PROFILES '''
@@ -501,23 +485,22 @@ def profileOnDetector(channel ,slit_w ,seeing ,pivot ,lams ,spatial_range=None ,
     dx = (1*u.pix).to(u.arcsec ,equivalencies=plate_scale[channel]) * bin_spatial
     x=rangeQ(0*u.arcsec ,spatial_range ,dx)
 
-    # For each wavelength, integrate over the slit width and from origin to each spatial pixel boundary
-    # slitFractions() halves w and h in its integrals so double the pixel height argument
-    # This returns Npix+1 dicts containing arrays of length Nlambda
-    # PSFsums=[slitFractions(lams, slit_w, 2*xi ,seeing) for xi in x]  #SLOW?
-    PSFsums=slitFractions(lams, slit_w, 2*x ,seeing)
+    Np = len(x)
 
-    # Normalize to sum over full slit
-    # This sums only from 0 to slit height, so double it below to get full slit value
-    profile_norm=slitFractions(lams, slit_w, slit_h ,seeing)  #shape is (Nlambda)
+    alphas = moffat_alpha(seeingLambda(lams ,seeing ,pivot=pivot), moffat_beta)
 
-    # Subtract sums at adjacent pixel boundaries to get sum in each pixel
-    profile_slit={}
-    for k in ['center','side']:
-        profile_slit[k]=(PSFsums[k][1:]-PSFsums[k][:-1])/2/profile_norm[k]
-        # NB doubled normalization cf. above note
+    # spt shape = (Npix, Nlambda)
+    spt_center, bin_edges = slit_pixelized_tabulatedQ(slit_w, dx, Np, alphas, moffat_beta, Moffat_table)
+    spt_total, _          = slit_pixelized_tabulatedQ(3*slit_w, dx, Np, alphas, moffat_beta, Moffat_table)
+    spt_side = (spt_total-spt_center)/2
 
-    # shapes are (Npix, Nlambda)
+    # Normalize to spatial sum over half slit (0 to slit height)
+    profile_norm = {k: v(lams).value for k,v in slitEfficiency(slit_w ,seeing).items()} ### possible lams array size problem here
+
+    profile_slit = {
+        'center':spt_center/profile_norm['center'],  # shapes are (Npix, Nlambda)
+        'side':spt_side/profile_norm['side'], 
+        'bin_edges':bin_edges}
 
     return profile_slit
 
@@ -551,13 +534,16 @@ def applySlit(slitw, source_at_slit, sky_at_slit, throughput_slicerOptics, args 
 
     if POINTSOURCE:
         # Combine slit fractions arrays with Optics to make throughput elements
-        throughput_slicer = slitEfficiency(slitw ,slit_h ,args.seeing[0] ,pivot=args.seeing[1] ,optics=throughput_slicerOptics)
+        throughput_slicer = slitEfficiency(slitw ,args.seeing[0] ,pivot=args.seeing[1] ,optics=throughput_slicerOptics)
 
         # Compute pixelized spatial profiles for a flat spectrum
         # Multiplying spectra by these profiles "distributes" counts over pixels in spatial direction
         # THIS IS ONLY HALF THE (symmetric) PROFILE, so it is normalized to 0.5
         # profile_slit[k][lightpath] sums to 0.5 in each w bin and each path individually
         # profile_slit[k][lightpath] shape is (Nspatial, Nspectral)
+
+        # Slit loss vs. wavelength is accounted for in slitEfficiency()
+        # Here we approximate the spatial profile as constant across the channel to compute sharpness and pixel SNR
 
         profile_slit = { k: profileOnDetector(k ,slitw ,args.seeing[0] ,args.seeing[1] ,binCenters[k].mean() ### If not using mean, must change slitFractions() to allow lambda arrays
                                                 ,spatial_range=None ,bin_spatial=args.binspat)
@@ -570,7 +556,7 @@ def applySlit(slitw, source_at_slit, sky_at_slit, throughput_slicerOptics, args 
     if args.fastSNR: Npix_spatial = 2*args.fastSNR  # overrides extended source size
 
     sharpness = { k : { s: 
-        1./array([Npix_spatial]*len(binCenters[k])) if Npix_spatial is not None # 1/sharpness = [N, N, N...]
+        1./np.array([Npix_spatial]*len(binCenters[k])) if Npix_spatial is not None # 1/sharpness = [N, N, N...]
         else 2*(profile_slit[k][s]**2).sum(0)
         for s in slicer_paths }  for k in chanlist }
 
@@ -639,7 +625,7 @@ def applySlit_extended(slitw, source_at_slit, sky_at_slit, throughput_slicerOpti
     else: Npix_spatial = None
 
     sharpness = { k : { s: 
-        1./array([Npix_spatial]*len(binCenters[k]))  #1/sharpness = [N, N, N...]
+        1./np.array([Npix_spatial]*len(binCenters[k]))  #1/sharpness = [N, N, N...]
         for s in slicer_paths }  for k in chanlist }
 
     # Multiply source spectrum by all throughputs, atmosphere, slit loss, and convolve with LSF
@@ -762,3 +748,288 @@ def plotAllChannels(spec ,lambda_range=None ,binned=False ,spec_allchan=None ,bi
     
     if lambda_range is not None:
         ax.axvspan(lambda_range[0], lambda_range[1], alpha=0.2, color='grey') # shade user range
+
+
+# Tools for pre-tabulating Moffat profile integrals
+
+from scipy.special import betainc, beta as beta_func
+from scipy.integrate import cumulative_trapezoid
+from scipy.interpolate import RegularGridInterpolator
+from collections import namedtuple
+
+
+MoffatTable = namedtuple("MoffatTable", ["beta", "r_grid", "u_grid", "G_table", "interp"])
+
+def _g(u, r, beta):
+    """Dimensionless slit-integrated Moffat profile, g(u, r; beta).
+
+    u = y/alpha (position along slit, dimensionless)
+    r = w/alpha (slit width, dimensionless)
+
+    Related to the physical profile by:
+        P(y; w, alpha, beta) = (beta - 1) / (pi * alpha) * g(y/alpha, w/alpha, beta)
+    """
+    B = beta_func(0.5, beta - 0.5)
+    t = r**2 / (r**2 + 4 * (1 + u**2))
+    return B * (1 + u**2)**(-(beta - 0.5)) * betainc(0.5, beta - 0.5, t)
+
+def build_moffat_table(beta, alpha_range, w_range, y_max,
+                        r_margin=1.5, u_table_max=60.0,
+                        n_r=500, n_u_fine=3000, n_u_coarse=2000):
+    """
+    Pre-tabulate the dimensionless cumulative Moffat slit profile G(U, r; beta)
+    for a fixed Moffat index beta, over a grid wide enough to cover a given
+    range of alpha, w, and maximum slit-length y.
+
+    G(U, r; beta) = integral_0^U g(u, r; beta) du
+
+    is related to the physical cumulative flux along the slit by:
+
+        C(Y; w, alpha, beta) = (beta - 1) / pi * G(Y / alpha, w / alpha, beta)
+
+    Build this table once for a given beta and reuse it (via
+    slit_pixelized_tabulated) for any number of (w, alpha, pixel_size,
+    n_pixels) combinations at that beta -- this avoids repeating numerical
+    quadrature on every call.
+
+    Parameters
+    ----------
+    beta : float
+        Moffat index the table is built for. Must match the beta later
+        passed to slit_pixelized_tabulated (checked there to within
+        beta_tol).
+    alpha_range : tuple of float (alpha_min, alpha_max)
+        Expected range of the Moffat scale parameter alpha, in arcsec, over
+        which this table will be used. alpha_min must be > 0.
+    w_range : tuple of float (w_min, w_max)
+        Expected range of slit width w, in arcsec, over which this table
+        will be used. w_min must be > 0.
+    y_max : float
+        Maximum slit-length coordinate y, in arcsec, that will be queried
+        (e.g. n_pixels * pixel_size for the largest expected pixel grid).
+        Used only as a sanity reference for the caller; the table's u-grid
+        is capped at u_table_max regardless (see below), since the Moffat
+        tail is negligible well before that for typical beta values.
+    r_margin : float, optional
+        Multiplicative margin applied to the r = w/alpha grid bounds beyond
+        [w_min/alpha_max, w_max/alpha_min], to avoid edge-of-table
+        interpolation artifacts. Default 1.5 (50% margin).
+    u_table_max : float, optional
+        Upper bound of the u = y/alpha grid. Values of U = Y/alpha beyond
+        this are clamped (not extrapolated) when evaluating the table, on
+        the assumption that the Moffat tail is negligible past this point.
+        Default 60, which is very conservative for beta ~ 4-5 (tail flux
+        beyond u=60 is ~1e-15 of the total for beta=4.77); increase this if
+        using a much smaller beta (shallower tail) or if y_max / alpha_min
+        is not comfortably below it.
+    n_r : int, optional
+        Number of grid points in r (log-spaced). Default 500.
+    n_u_fine : int, optional
+        Number of grid points in u from 0 to 5 (where the profile curves
+        fastest). Default 3000.
+    n_u_coarse : int, optional
+        Number of grid points in u from 5 to u_table_max. Default 2000.
+
+    Returns
+    -------
+    table : MoffatTable (namedtuple)
+        table.beta    : float, the beta this table was built for
+        table.r_grid  : ndarray, log-spaced grid of r = w/alpha values
+        table.u_grid  : ndarray, grid of u = y/alpha values (fine near 0)
+        table.G_table : ndarray, shape (n_r, len(u_grid))
+                        G(U, r; beta) evaluated on the (r_grid, u_grid) mesh
+        table.interp  : scipy.interpolate.RegularGridInterpolator
+                        callable as interp((r, U)) -> G(U, r; beta);
+                        used internally by slit_pixelized_tabulated.
+    """
+    r_min = w_range[0] / alpha_range[1]
+    r_max = w_range[1] / alpha_range[0]
+    r_grid = np.logspace(np.log10(r_min / r_margin), np.log10(r_max * r_margin), n_r)
+
+    u_grid = np.concatenate([
+        np.linspace(0, 5, n_u_fine),
+        np.linspace(5, u_table_max, n_u_coarse)[1:]
+    ])
+
+    U, R = np.meshgrid(u_grid, r_grid, indexing='xy')
+    g_vals = _g(U, R, beta)
+    G_table = cumulative_trapezoid(g_vals, u_grid, axis=1, initial=0.0)
+    interp = RegularGridInterpolator((r_grid, u_grid), G_table,
+                                      bounds_error=False, fill_value=None)
+
+    return MoffatTable(beta=beta, r_grid=r_grid, u_grid=u_grid,
+                        G_table=G_table, interp=interp)
+
+
+def slit_pixelized_tabulatedQ(w, pixel_size, n_pixels, alpha, beta, table,
+                              beta_tol=0.01):
+    """
+    Fast, table-based equivalent of slit_pixelized(): flux per pixel along a
+    slit, using a pre-built MoffatTable in place of per-pixel numerical
+    quadrature.
+
+    w, pixel_size, and alpha are astropy Quantities with angular-distance
+    units (e.g. arcsec, deg, mas -- units need not match each other, since
+    only their ratios enter the calculation; astropy handles the unit
+    conversion). alpha may be a scalar Quantity or an array Quantity of
+    several alpha values (e.g. for a set of sources or exposures sharing
+    the same slit geometry and beta); the output is vectorized over alpha.
+
+    Source center lies on the edge of the first pixel (i.e. at y=0, the
+    boundary of the returned grid) rather than centered between two pixels
+    as in slit_pixelized -- only the positive-y side (0 to +n_pixels) is
+    returned. By the symmetry of the Moffat profile in y, the negative-y
+    side is identical and can be obtained by mirroring (pixels[::-1]) if
+    needed. Values of y/alpha beyond the table's u-grid range are clamped
+    rather than extrapolated (safe as long as table.u_grid was built with
+    u_table_max large enough that the Moffat tail is negligible beyond it
+    -- see build_moffat_table).
+
+    Parameters
+    ----------
+    w : astropy.units.Quantity (scalar)
+        Slit width, angular-distance unit (e.g. u.arcsec).
+    pixel_size : astropy.units.Quantity (scalar)
+        Pixel size along the slit, angular-distance unit.
+    n_pixels : int
+        Number of pixels to return, covering y in [0, n_pixels * pixel_size].
+    alpha : astropy.units.Quantity (scalar or 1D array)
+        Moffat scale parameter, angular-distance unit. If an array of
+        length N, results are computed for all N values at once.
+    beta : float
+        Moffat index. Must match table.beta to within a relative tolerance
+        of beta_tol, or a ValueError is raised.
+    table : MoffatTable
+        Pre-built table from build_moffat_table(beta, ...). The alpha_range
+        and w_range used to build it should cover the alpha and w passed
+        here, or results will rely on clamped (extrapolated-in-effect)
+        edge values.
+    beta_tol : float, optional
+        Relative tolerance for the beta consistency check:
+        abs(beta - table.beta) <= beta_tol * table.beta.
+        Default 0.01 (1%).
+
+    Returns
+    -------
+    pixels : ndarray, shape (n_pixels, len(alpha))
+        Flux fraction per pixel, ordered from y=0 to y=+n_pixels*pixel_size
+        along axis 0, and matching the (broadcast to 1D) input alpha values
+        along axis 1. 2 * pixels.sum(axis=0) -> slit_fraction(w, alpha,
+        beta) (per alpha value) as n_pixels -> inf, since this covers only
+        the positive-y half. Plain ndarray (dimensionless flux fraction,
+        not a Quantity).
+    edges : astropy.units.Quantity, shape (n_pixels + 1,)
+        Bin edges along the slit, from 0 to n_pixels * pixel_size, in the
+        same unit as pixel_size.
+
+    Raises
+    ------
+    ValueError
+        If beta does not match table.beta to within beta_tol.
+    """
+    if abs(beta - table.beta) > beta_tol * table.beta:
+        raise ValueError(
+            f"beta={beta} does not match table.beta={table.beta} "
+            f"to within relative tolerance beta_tol={beta_tol} "
+            f"(this table was built for a different Moffat index)."
+        )
+
+    alpha = u.Quantity(np.atleast_1d(alpha))          # ensure 1D array, shape (n_alpha,)
+    n_alpha = alpha.size
+
+    # r = w / alpha, dimensionless, shape (n_alpha,)
+    r = (w / alpha).to_value(u.dimensionless_unscaled)
+    r_clamped = np.clip(r, table.r_grid[0], table.r_grid[-1])          # (n_alpha,)
+
+    # edges along the slit, physical (Quantity), shape (n_pixels+1,)
+    edges = np.arange(0, n_pixels + 1) * pixel_size
+
+    # U = y/alpha, dimensionless, shape (n_pixels+1, n_alpha) via broadcasting
+    U_edges = (edges[:, None] / alpha[None, :]).to_value(u.dimensionless_unscaled)
+    U_clamped = np.clip(U_edges, table.u_grid[0], table.u_grid[-1])
+
+    r_broadcast = np.broadcast_to(r_clamped, U_clamped.shape)          # (n_pixels+1, n_alpha)
+
+    pts = np.stack([r_broadcast.ravel(), U_clamped.ravel()], axis=-1)
+    G_edges = table.interp(pts).reshape(U_clamped.shape)               # (n_pixels+1, n_alpha)
+    C_edges = (beta - 1) / np.pi * G_edges
+
+    pixels = np.diff(C_edges, axis=0).squeeze()                                   # (n_pixels, n_alpha)
+    return pixels, edges
+
+def save_moffat_table(table, filepath):
+    """
+    Save a MoffatTable to disk for later reuse, without rebuilding it from
+    scratch (avoids repeating the ~1 s tabulation cost).
+
+    Only the raw arrays (beta, r_grid, u_grid, G_table) are saved -- not the
+    RegularGridInterpolator object itself, which is cheap to reconstruct and
+    is better rebuilt fresh (pickling scipy objects directly is fragile
+    across scipy versions and unnecessarily bloats the file).
+
+    Parameters
+    ----------
+    table : MoffatTable
+        The table to save, as returned by build_moffat_table().
+    filepath : str or path-like
+        Destination path. A ".npz" extension is recommended (and will be
+        added automatically by np.savez if omitted).
+    """
+    np.savez_compressed(
+        filepath,
+        beta=table.beta,
+        r_grid=table.r_grid,
+        u_grid=table.u_grid,
+        G_table=table.G_table,
+    )
+
+
+def load_moffat_table(filepath):
+    """
+    Load a MoffatTable previously saved with save_moffat_table().
+
+    Reconstructs the RegularGridInterpolator from the saved (r_grid, u_grid,
+    G_table) arrays -- fast (milliseconds), since no tabulation (numerical
+    integration) is redone.
+
+    Parameters
+    ----------
+    filepath : str or path-like
+        Path to a file previously written by save_moffat_table().
+
+    Returns
+    -------
+    table : MoffatTable
+        Reconstructed table, usable directly with slit_pixelized_tabulated.
+        table.beta is a Python float (not a 0-d array).
+    """
+    with np.load(filepath) as data:
+        beta = float(data["beta"])
+        r_grid = data["r_grid"]
+        u_grid = data["u_grid"]
+        G_table = data["G_table"]
+
+    interp = RegularGridInterpolator((r_grid, u_grid), G_table,
+                                      bounds_error=False, fill_value=None)
+    return MoffatTable(beta=beta, r_grid=r_grid, u_grid=u_grid,
+                        G_table=G_table, interp=interp)
+
+def float_to_pstring(value):
+    """Convert a float or int to 'XXXpYYY' format with exactly 3 decimal digits.
+    e.g. 12.3 -> '12p300', 7 -> '7p000', -3.14159 -> '-3p142'
+    """
+    rounded = round(float(value), 3)
+    integer_part = int(rounded)
+    decimal_part = abs(round((rounded - integer_part) * 1000))
+    # handle rounding carry-over, e.g. 1.9999 -> 2p000
+    if decimal_part == 1000:
+        decimal_part = 0
+        integer_part += 1 if rounded >= 0 else -1
+    return f"{integer_part}p{decimal_part:03d}"
+
+
+## USE THIS TO GENERATE AN INTEGRAL TABLE FOR A NEW VALUE OF MOFFAT_BETA
+# print(moffile)
+# temp_table = build_moffat_table(beta=moffat_beta, alpha_range=(0.2, 6.0), w_range=(0.1, 3*10.0), y_max=30.0) # units are arcsec
+# save_moffat_table(temp_table, moffile)
+
