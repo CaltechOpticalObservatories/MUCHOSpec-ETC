@@ -4,7 +4,7 @@
 
 import numpy as np
 from pickle import load as pload  # Only needed in point source case
-from synphot import SourceSpectrum, SpectralElement  # SLOW IMPORT!
+from synphot import SourceSpectrum, SpectralElement, Observation  # SLOW IMPORT!
 from synphot.models import Empirical1D, Gaussian1D, Box1D, ConstFlux1D
 import astropy.units as u
 import synphot.units as uu  # used in main code, not this file

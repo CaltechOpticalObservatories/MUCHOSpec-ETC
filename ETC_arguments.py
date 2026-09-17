@@ -14,7 +14,7 @@ def noQuitETCparser():
 help = 'Run the Exposure Time Calculator.  Outputs are SNR, EXPTIME, wavelength range, and optional plots. '
 help += 'The model assumes that signals from 3 image slicer paths are summed for the SNR calculation.'
 epilog = 'Example minimum argument set:\n'
-epilog += './ETC_main.py G 500 510 SNR 10 -slit SET .5 -seeing 1 500 -airmass 1 -skymag 21.4 -mag 18. -magsystem AB -magfilter match'
+epilog += './ETC_main.py R 600 610 SNR 10 -slit SET 1.0 -seeing 1.5 500 -airmass 1 -skymag 21.4 -mag 18. -magsystem AB -magfilter match'
 
 parser = argparse.ArgumentParser(  # Make printed help text wider
   formatter_class=lambda prog: argparse.HelpFormatter(prog,max_help_position=40) ,description=help ,epilog=epilog)
@@ -89,6 +89,7 @@ parser.add_argument('-hires', action='store_true', help=help)
 help = 'Increase accuracy when solving for slit width and exptime simultaneously. (slower)'
 parser.add_argument('-hires_solve', action='store_true', help=help)
 
+
 obsparam = parser.add_argument_group('REQUIRED Observation conditions')
 
 help = 'Mode of setting the slit width (string) and value for that mode (float).  '
@@ -101,8 +102,12 @@ obsparam.add_argument('-seeing', type=posfloat, nargs=2, metavar=('SEEING','PIVO
 help = 'Airmass (dimensionless)'
 obsparam.add_argument('-airmass', type=float, required=True, help=help)
 
-help = 'Sky brightness magnitude per arcsec^2 (VEGA, johnson_v)'
+help = 'Sky brightness (ABmag per arcsec^2)'
 obsparam.add_argument('-skymag', type=float, required=True, help=help)
+
+help = '''[[CURRENTLY OPTIONAL]]  Johnson filter (VRI) to define sky background magnitude. Default=R'''
+obsparam.add_argument('-skyfilter', type=str, choices=['V','R','I'], required=False, default='R', help=help)
+
 
 sourceparam_req = parser.add_argument_group('REQUIRED Source parameters')
 
@@ -116,6 +121,7 @@ sourceparam_req.add_argument('-magsystem', type=str, choices=choices, required=T
 help = '''Johnson filter (UBVRIJK) to define source magnitude. Use FILTER="match" to normalize to the WRANGE input'''
 choices = [c for c in 'UBVRIJK'] + ['user','USER','User'] + ['match','MATCH','Match']
 sourceparam_req.add_argument('-magfilter', type=str, choices=choices, required=True, help=help)
+
 
 sourceparam_add = parser.add_argument_group('Additional source parameters')
 

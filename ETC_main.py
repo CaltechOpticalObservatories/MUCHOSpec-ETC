@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Author: Chaz Shapiro (2022)
+# Author: Chaz Shapiro (2022-2026)
 #
 # Notes on SNR estimation: https://www.stsci.edu/instruments/wfpc2/Wfpc2_hand/HTML/W2_61.html
 
@@ -9,6 +9,9 @@
 ### K-CORRECTION
 # Clean up global-ish variables?
 
+# import sys
+# sys.path.append('./')
+
 from ETC.ETC_config import *
 from ETC.ETC_arguments import *
 from ETC.ETC_import import *
@@ -16,18 +19,6 @@ from numpy import array, arange, vstack, log, where
 from scipy import optimize
 
 ''' LOAD DATA that doesn't depend on user input '''
-
-# Load sky default background; used if rubin_sim spectrum is not provided
-# background units dimensions are not same as other flux units
-# File units = u.photon/u.s/u.nm/u.arcsec**2/u.m**2 ~ phot/s/wavelength  VS  nm
-skySpec0 = SourceSpectrum.from_file(CSVdir+skybackground_file ,wave_unit='nm') #HARDCODED UNIT
-# assumes units = phot/s/cm^2/Angstrom 
-
-skySpec0 = skySpec0*1.575e-17 # * 10.**((21.4-args.skymag)/2.5) ### HARDCODE NORMALIZED TO VEGA mag 21.4 JOHNSON V
-skymag0 = 21.4
-
-# Don't need to match mag reference and filter to source; will use whatever data we have
-skyFilter = SpectralElement.from_filter('johnson_v')
 
 # Load telescope throughput
 throughput_telescope = LoadCSVSpec(throughputFile_telescope)
@@ -73,16 +64,25 @@ def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skys
     # Load source spectrum model and normalize
     sourceSpectrum = makeSource(args)
 
-    # Use provided sky spectrum; if not provided use and normalize template
+    # Use provided sky spectrum
     if skyspec: 
         skySpec = SourceSpectrum(Empirical1D, keep_neg=True, 
                                   points=skyspec[0]*u.nm, lookup_table=skyspec[1][0]*uu.FLAM) # (nm , ergs/s/cm^2/Å )
 
+    # Load and normalize Palomar template
     else:
-    # Normalize the sky; normalization is wrong but proportional to phot/s/wavelength, same as file
-    # skySpec = skySpec0.normalize(args.skymag*uu.VEGAMAG ,band=skyFilter ,vegaspec=vegaspec ) 
-        skySpec = skySpec0 * 10.**((skymag0-args.skymag)/2.5) ###
-    # new units = VEGAMAG/arcsec^2 since skymag is really mag/arcsec^2
+
+        # CSV file units = erg/s/cm^2/A/arcsec^2
+        # synphot import below assumes "FLAM" (erg/s/cm^2/A) so the /arcsec^2 is only implied
+        skySpec0 = SourceSpectrum.from_file(CSVdir+skybackground_file) 
+
+        # Get template normalization in ABmag
+        skyFilter = SpectralElement.from_filter('johnson_'+args.skyfilter.lower()) # e.g. 'johnson_r'
+        skyobs0 = Observation(skySpec0, skyFilter, force='taper') # taper extends spectrum to 12000A to allow johnson_i mag
+        skymag0 = skyobs0.effstim(u.ABmag).value  # ABmag/arcsec^2
+
+        # Normalize the sky; new units = ABmag/arcsec^2 since skymag is really mag/arcsec^2
+        skySpec = skySpec0 * 10.**((skymag0-args.skymag)/2.5)
 
     # Load "throughput" for atmosphere
     throughput_atm = Extinction_atm(args.airmass)

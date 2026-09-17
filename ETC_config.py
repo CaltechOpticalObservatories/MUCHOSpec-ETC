@@ -29,7 +29,7 @@ moffat_beta=2.9  # .npz file for this beta must exist
 CSVdir=None #'/home/developer/Software/ETC/CSV/'
 default_waveunit=u.nm  #assume units for all CSV files
 
-skybackground_file = 'Gemini_skybg_50_10.txt'  #placeholder sky model
+skybackground_file = 'sky_spectra_palomar-grey.csv'  # Measured 2026-07;  flux units are /Angstrom
 
 throughputFile_atm = 'atm-extinction-Palomar.csv'  #dimensionless T  (Flux/Flux_above_atmosphere)
 throughputFile_telescope = 'throughput-Palomar-200inch.csv'
@@ -53,7 +53,7 @@ chanConfig['platescale']=(0.185, 0.185, 0.185, 0.185)*u.arcsec/u.pix
 
 chanConfig['darkcurrent']=(2.0, 2.0, 2.0, 2.0)*u.count/u.pix/u.hr
 
-chanConfig['readnoise']=(3.1, 19., 3.5, 4.7)*u.count/u.pix # rms e-
+chanConfig['readnoise']=(3.1, 7.3, 3.5, 4.7)*u.count/u.pix # rms e-
 
 #LSFFile={}  # Wait for data
 
