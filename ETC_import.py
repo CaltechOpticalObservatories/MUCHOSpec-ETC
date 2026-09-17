@@ -90,10 +90,9 @@ def LoadCSVSpec(filename ,CSVdir=CSVdir):
     '''Helper to load throughput/spectrum element from CSV file'''
     return SpectralElement.from_file(CSVdir+filename ,wave_unit=default_waveunit)
 
-def seeingLambda(w ,FWHM ,pivot=500.*u.nm):
+def seeingLambda(w ,FWHM ,pivot=640.*u.nm):
     '''Seeing law scaled to wavelength'''
     assert u.get_physical_type(w) == 'length', "w must have units of length"
-    #pivot = 500.*u.nm
     return (FWHM*(pivot/w)**0.2).to('arcsec')  # Force units to simplify
 
 def moffat_alpha(fwhm, beta):
@@ -166,7 +165,7 @@ def Extinction_atm(airmass):
     bandpass.model.lookup_table = bandpass.model.lookup_table**airmass
     return bandpass
 
-def makeLSFkernel(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4. ,pivot=500*u.nm):
+def makeLSFkernel(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4. ,pivot=640*u.nm):
     '''Placeholder until we have LSF data'''
     '''
     Approximates seeing for each channel as Gaussian with scale at channel center wavelength
@@ -230,7 +229,7 @@ def makeLSFkernel(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4
 
     return kernel, fwhm, dlambda
 
-def makeLSFkernel_slicer(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4. ,pivot=500*u.nm, centeronly=False):
+def makeLSFkernel_slicer(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4. ,pivot=640*u.nm, centeronly=False):
     '''Placeholder until we have LSF data'''
     '''
     Approximates seeing for each channel as Gaussian with scale at channel center wavelength
@@ -316,7 +315,7 @@ def makeLSFkernel_slicer(slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_f
 
     return LSF
 
-def convolveLSF_old(spectrum, slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4. ,pivot=500*u.nm ,wrange_=None):
+def convolveLSF_old(spectrum, slit_w ,seeing ,ch ,kernel_upsample=10. ,kernel_range_factor=4. ,pivot=640*u.nm ,wrange_=None):
     '''Convolve spectrum at focal plane with LSF'''
     '''
     Approximates seeing for each channel as Gaussian with scale at channel center wavelength
@@ -422,7 +421,7 @@ def slit_fraction(w_over_theta, beta=moffat_beta):
     # regularized incomplete Beta function
     return betainc(0.5, beta - 1, x)
 
-def slitEfficiency(w ,FWHM ,pivot=500.*u.nm ,optics=None):
+def slitEfficiency(w ,FWHM ,pivot=640.*u.nm ,optics=None):
     '''Compute fraction of PSF passing through slit and side slices, assuming Moffat PSF'''
     '''
     w: slit width (unitful; angular projection on sky)
@@ -435,7 +434,7 @@ def slitEfficiency(w ,FWHM ,pivot=500.*u.nm ,optics=None):
     # Slow function of wavelength so choose 10nm sampling
     lams = rangeQ(totalRange[0],totalRange[1],10*u.nm)
 
-    alphas = moffat_alpha(seeingLambda(lams ,FWHM ,pivot=500*u.nm), moffat_beta)
+    alphas = moffat_alpha(seeingLambda(lams ,FWHM ,pivot=pivot), moffat_beta)
 
     centerFrac = slit_fraction((w/alphas).value, beta=moffat_beta)
     totalFrac = slit_fraction(3*(w/alphas).value, beta=moffat_beta)
