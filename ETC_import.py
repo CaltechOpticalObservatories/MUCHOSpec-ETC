@@ -3,7 +3,6 @@
 #TODO: rewite LSF convolution using astropy.convolution?
 
 import numpy as np
-from pickle import load as pload  # Only needed in point source case
 from synphot import SourceSpectrum, SpectralElement, Observation  # SLOW IMPORT!
 from synphot.models import Empirical1D, Gaussian1D, Box1D, ConstFlux1D
 import astropy.units as u
