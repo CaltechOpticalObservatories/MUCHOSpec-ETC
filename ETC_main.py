@@ -99,9 +99,29 @@ def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skys
 
     '''  ALL SLIT DEPENDENCE BELOW THIS LINE '''
 
+    # Point source, non-hires: do the slit-dependent math on plain arrays sampled once here
+    USE_ARRAYS = (not args.hires) and (args.extended is None)
+    if USE_ARRAYS:
+        src_bc     = {k: sourceSpec_wTP[k](binCenters[k]) for k in channels}
+        sky_bc     = {k: skySpec_wTP[k](binCenters[k]) for k in channels}
+        optics_bc  = {k: throughput_slicerOptics(binCenters[k]).value for k in channels}
+        optics_grid = throughput_slicerOptics(slit_grid_nm()*u.nm).value
+
     # Setup the slicer function; cache saves time in loops where slit width doesn't change
     @cache
     def SSSfocalplane(w):
+
+        if USE_ARRAYS:
+            sourceSpectrumFPA, skySpectrumFPA, sharpness = \
+                applySlitPointArrays(w, src_bc, sky_bc, optics_bc, optics_grid, args, channels)
+
+            signal = {k: {s: (sourceSpectrumFPA[k][s]*telescope_Area/u.ph*u.ct
+                            *(args.binspect*u.pix).to('nm',  equivalencies=dispersion_scale_nobin[k])).decompose()
+                            for s in slicer_paths} for k in channels }
+            bgvar = {k: {s: (skySpectrumFPA[k][s]*telescope_Area/u.ph*u.ct
+                            *(args.binspect*u.pix).to('nm',  equivalencies=dispersion_scale_nobin[k])).decompose()
+                            for s in slicer_paths} for k in channels }
+            return signal, bgvar, sharpness
 
         sourceSpectrumFPA, skySpectrumFPA, sharpness = \
             applySlit(w, sourceSpec_wTP, skySpec_wTP, throughput_slicerOptics, args ,channels)
