@@ -3,11 +3,10 @@
 #TODO: rewite LSF convolution using astropy.convolution?
 
 import numpy as np
-from synphot import SourceSpectrum, SpectralElement, Observation  # SLOW IMPORT!
+from synphot import SourceSpectrum, SpectralElement  # SLOW IMPORT!
 from synphot.models import Empirical1D, Gaussian1D, Box1D, ConstFlux1D
 import astropy.units as u
 import synphot.units as uu  # used in main code, not this file
-from functools import cache
 from copy import deepcopy
 from scipy.signal import convolve, peak_widths
 from scipy.special import betainc

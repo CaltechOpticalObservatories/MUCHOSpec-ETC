@@ -17,6 +17,8 @@ from ETC.ETC_arguments import *
 from ETC.ETC_import import *
 from numpy import array, arange, vstack, log, where
 from scipy import optimize
+from functools import cache
+from synphot import Observation
 
 ''' LOAD DATA that doesn't depend on user input '''
 
