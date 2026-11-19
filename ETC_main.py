@@ -9,14 +9,13 @@
 ### K-CORRECTION
 # Clean up global-ish variables?
 
-# import sys
-# sys.path.append('./')
-
 from ETC.ETC_config import *
 from ETC.ETC_arguments import *
 from ETC.ETC_import import *
 from numpy import array, arange, vstack, log, where
 from scipy import optimize
+from functools import cache
+from synphot import Observation
 
 ''' LOAD DATA that doesn't depend on user input '''
 
@@ -35,6 +34,17 @@ throughput_slicerOptics = LoadCSVSpec(throughputFile_slicer)
 # tt.stop('Setup')
 
 ''' MAIN FUNCTION RETURNS DICT OF RESULTS '''
+_SKY_TEMPLATE = {}
+def _skyTemplate(skyfilter):
+    '''(sky template spectrum, its ABmag/arcsec^2 in the given Johnson filter); cached per filter'''
+    key = skyfilter.upper()
+    if key not in _SKY_TEMPLATE:
+        skySpec0 = SourceSpectrum.from_file(CSVdir+skybackground_file)
+        skyFilter = SpectralElement.from_filter('johnson_'+skyfilter.lower())  # e.g. 'johnson_r'
+        skyobs0 = Observation(skySpec0, skyFilter, force='taper')  # taper extends spectrum to 12000A to allow johnson_i mag
+        _SKY_TEMPLATE[key] = (skySpec0, skyobs0.effstim(u.ABmag).value)  # ABmag/arcsec^2
+    return _SKY_TEMPLATE[key]
+
 def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skyspec=None):
     '''
     skyspec = 2xN array tabulating a sky background spectrum; units = (nm , ergs/s/cm^2/Å )
@@ -74,12 +84,8 @@ def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skys
 
         # CSV file units = erg/s/cm^2/A/arcsec^2
         # synphot import below assumes "FLAM" (erg/s/cm^2/A) so the /arcsec^2 is only implied
-        skySpec0 = SourceSpectrum.from_file(CSVdir+skybackground_file) 
-
-        # Get template normalization in ABmag
-        skyFilter = SpectralElement.from_filter('johnson_'+args.skyfilter.lower()) # e.g. 'johnson_r'
-        skyobs0 = Observation(skySpec0, skyFilter, force='taper') # taper extends spectrum to 12000A to allow johnson_i mag
-        skymag0 = skyobs0.effstim(u.ABmag).value  # ABmag/arcsec^2
+        # Template and its ABmag normalization depend only on the sky filter; cache per filter
+        skySpec0, skymag0 = _skyTemplate(args.skyfilter)
 
         # Normalize the sky; new units = ABmag/arcsec^2 since skymag is really mag/arcsec^2
         skySpec = skySpec0 * 10.**((skymag0-args.skymag)/2.5)
@@ -99,9 +105,29 @@ def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skys
 
     '''  ALL SLIT DEPENDENCE BELOW THIS LINE '''
 
+    # Point source, non-hires: do the slit-dependent math on plain arrays sampled once here
+    USE_ARRAYS = (not args.hires) and (args.extended is None)
+    if USE_ARRAYS:
+        src_bc     = {k: sourceSpec_wTP[k](binCenters[k]) for k in channels}
+        sky_bc     = {k: skySpec_wTP[k](binCenters[k]) for k in channels}
+        optics_bc  = {k: throughput_slicerOptics(binCenters[k]).value for k in channels}
+        optics_grid = throughput_slicerOptics(slit_grid_nm()*u.nm).value
+
     # Setup the slicer function; cache saves time in loops where slit width doesn't change
     @cache
     def SSSfocalplane(w):
+
+        if USE_ARRAYS:
+            sourceSpectrumFPA, skySpectrumFPA, sharpness = \
+                applySlitPointArrays(w, src_bc, sky_bc, optics_bc, optics_grid, args, channels)
+
+            signal = {k: {s: (sourceSpectrumFPA[k][s]*telescope_Area/u.ph*u.ct
+                            *(args.binspect*u.pix).to('nm',  equivalencies=dispersion_scale_nobin[k])).decompose()
+                            for s in slicer_paths} for k in channels }
+            bgvar = {k: {s: (skySpectrumFPA[k][s]*telescope_Area/u.ph*u.ct
+                            *(args.binspect*u.pix).to('nm',  equivalencies=dispersion_scale_nobin[k])).decompose()
+                            for s in slicer_paths} for k in channels }
+            return signal, bgvar, sharpness
 
         sourceSpectrumFPA, skySpectrumFPA, sharpness = \
             applySlit(w, sourceSpec_wTP, skySpec_wTP, throughput_slicerOptics, args ,channels)

@@ -1,5 +1,4 @@
 import argparse
-from sys import path
 from numpy.ma import is_masked
 from ETC.ETC_import import sourcesdir
 from ETC.ETC_config import slitmodes

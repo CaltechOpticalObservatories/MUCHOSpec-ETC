@@ -3,12 +3,10 @@
 #TODO: rewite LSF convolution using astropy.convolution?
 
 import numpy as np
-from pickle import load as pload  # Only needed in point source case
-from synphot import SourceSpectrum, SpectralElement, Observation  # SLOW IMPORT!
+from synphot import SourceSpectrum, SpectralElement  # SLOW IMPORT!
 from synphot.models import Empirical1D, Gaussian1D, Box1D, ConstFlux1D
 import astropy.units as u
 import synphot.units as uu  # used in main code, not this file
-from functools import cache
 from copy import deepcopy
 from scipy.signal import convolve, peak_widths
 from scipy.special import betainc
@@ -399,21 +397,6 @@ def convolveLSF(LSF, spectrum ,ch ,kernel_range_factor=4. ,wrange_=None):
         
     return newspec
 
-# UNUSED - utility only
-from scipy.special import gamma
-def sharpness_scalefree(theta, beta, x=0.):
-    ''' 1D sharpness of seeing-limited PSF (Moffat) along spatial direction
-    x = horizontal offset; changes y projection for e.g. side image slice
-    '''
-
-    # Normalization of PSF
-    integral1 = 3.14159**.5 * theta**(2*beta) * (theta**2+x**2)**(0.5-beta) * gamma(beta-0.5) / gamma(beta)
-
-    # Integral over PSF squared (sharpness)
-    integral2 = 3.14159**.5 * theta**(4*beta) * (theta**2+x**2)**(0.5-2*beta) * gamma(2*beta-0.5) / gamma(2*beta)
-
-    return integral2/integral1**2
-
 def slit_fraction(w_over_theta, beta=moffat_beta):
     """Fraction of Moffat PSF transmitted through slit of width w centered on source."""
     xi = w_over_theta / 2
@@ -490,7 +473,7 @@ def profileOnDetector(channel ,slit_w ,seeing ,pivot ,lams ,spatial_range=None ,
     spt_side = (spt_total-spt_center)/2
 
     # Normalize to spatial sum over half slit (0 to slit height)
-    profile_norm = {k: v(lams).value for k,v in slitEfficiency(slit_w ,seeing).items()} ### possible lams array size problem here
+    profile_norm = slitFractionsAt(slit_w ,seeing ,lams)  # pivot = default 640 nm, no optics (as before)
 
     profile_slit = {
         'center':spt_center/profile_norm['center'],  # shapes are (Npix, Nlambda)
@@ -498,6 +481,88 @@ def profileOnDetector(channel ,slit_w ,seeing ,pivot ,lams ,spatial_range=None ,
         'bin_edges':bin_edges}
 
     return profile_slit
+
+### ---- Array-based (no synphot in the loop) slit model; used for point sources without -hires ----
+
+_SLIT_GRID_NM = None
+def slit_grid_nm():
+    '''Wavelength grid (nm) on which slit efficiencies are tabulated (10 nm sampling, as in slitEfficiency)'''
+    global _SLIT_GRID_NM
+    if _SLIT_GRID_NM is None:
+        _SLIT_GRID_NM = rangeQ(totalRange[0],totalRange[1],10*u.nm).to_value(u.nm)
+    return _SLIT_GRID_NM
+
+def slitFractions(w ,FWHM ,pivot=640.*u.nm ,optics_grid=None):
+    '''Numeric equivalent of slitEfficiency(): dict of plain arrays on slit_grid_nm() for 'center','side','total'.
+    optics_grid: slicer optics throughput sampled on slit_grid_nm() (dimensionless), or None.'''
+    lams = slit_grid_nm()*u.nm
+    alphas = moffat_alpha(seeingLambda(lams ,FWHM ,pivot=pivot), moffat_beta)
+    centerFrac = slit_fraction((w/alphas).value, beta=moffat_beta)
+    totalFrac = slit_fraction(3*(w/alphas).value, beta=moffat_beta)
+    sideFrac = (totalFrac-centerFrac)/2.
+    if optics_grid is not None:
+        sideFrac = sideFrac*optics_grid
+        totalFrac = centerFrac + sideFrac*2
+    return {'center':centerFrac, 'side':sideFrac, 'total':totalFrac}
+
+def slitFractionsAt(w ,FWHM ,lams ,pivot=640.*u.nm ,optics_grid=None):
+    '''slitFractions() linearly interpolated to wavelengths lams (Quantity), same as evaluating slitEfficiency()[k](lams)'''
+    lam_nm = u.Quantity(lams).to_value(u.nm)
+    grid = slit_grid_nm()
+    return {k: np.interp(lam_nm, grid, v) for k,v in slitFractions(w ,FWHM ,pivot ,optics_grid).items()}
+
+def applySlitPointArrays(slitw, src_bc, sky_bc, optics_bc, optics_grid, args, chanlist):
+    '''Point-source, non-hires counterpart of applySlit() working on plain arrays.
+    src_bc[k]:   source flux (FLAM Quantity) at args.binCenters_[k], incl. atmosphere and throughputs (no slit)
+    sky_bc[k]:   sky flux (FLAM Quantity) at args.binCenters_[k], incl. throughputs (no slit)
+    optics_bc[k]: slicer side optics (dimensionless) at args.binCenters_[k]
+    optics_grid: slicer optics (dimensionless) on slit_grid_nm()
+
+    Returns sourceSpectrumFPA[k][s], skySpectrumFPA[k][s] (FLAM Quantity arrays at binCenters[k]), sharpness[k][s]
+    Same results as applySlit() for POINTSOURCE, hires=False.
+    '''
+    binCenters = args.binCenters_
+    if args.noslicer or args.fastSNR:   slicer_paths = ['center']
+    else:                               slicer_paths = ['center','side']
+
+    grid = slit_grid_nm()
+    eff = slitFractions(slitw ,args.seeing[0] ,args.seeing[1] ,optics_grid)  # slit efficiencies on the grid
+
+    profile_slit = { k: profileOnDetector(k ,slitw ,args.seeing[0] ,args.seeing[1] ,binCenters[k].mean()
+                                          ,spatial_range=None ,bin_spatial=args.binspat)
+                     for k in chanlist }
+
+    if args.fastSNR: Npix_spatial = 2*args.fastSNR
+    else:            Npix_spatial = None
+
+    sharpness = { k : { s:
+        1./np.array([Npix_spatial]*len(binCenters[k])) if Npix_spatial is not None
+        else 2*(profile_slit[k][s]**2).sum(0)
+        for s in slicer_paths }  for k in chanlist }
+
+    sourceSpectrumFPA = {}
+    skySpectrumFPA = {}
+    for k in chanlist:
+        bg_pix_area = slitw * (1*u.pix).to('arcsec' ,equivalencies=plate_scale[k])
+        bg_pix_area = bg_pix_area.to('arcsec2').value
+
+        lam_nm = binCenters[k].to_value(u.nm)
+        sourceSpectrumFPA[k] = {}
+        skySpectrumFPA[k] = {}
+
+        for s in slicer_paths:
+            # source: spectrum * slit efficiency (center or total-side) at bin centers
+            spec = src_bc[k] * np.interp(lam_nm, grid, eff[s])
+            if args.fastSNR:
+                spec = spec * (2*profile_slit[k][s][0:args.fastSNR].sum())
+            sourceSpectrumFPA[k][s] = spec
+
+            # sky: flux per pixel scaled by slit area; side slice also sees slicer optics
+            spec = sky_bc[k] * bg_pix_area
+            if s == 'side': spec = spec * optics_bc[k]
+            skySpectrumFPA[k][s] = spec
+
+    return sourceSpectrumFPA, skySpectrumFPA, sharpness
 
 def applySlit(slitw, source_at_slit, sky_at_slit, throughput_slicerOptics, args ,chanlist ,kernel_range_factor=4.):
     '''Convert source and sky spectra at slit entrance to spectra at focal plane.
@@ -710,40 +775,6 @@ def computeSNR(exptime, slitw, args, SSSfocalplane, allChans=False):
 
     # Return 1 number - the SNR caclulated from user input
     else: return SNR[args.channel].mean()
-
-def plotAllChannels(spec ,lambda_range=None ,binned=False ,spec_allchan=None ,binCenters=None):
-    '''
-    spec: dictionary with a spectrum for each channel
-    lambda_range: shade a wavelength range of interest
-    binned:  if true, calculate flux in counts; otherwise use flux density
-    spec_allchan: multiply spectra in all channels by this spectrum (bandpass)
-    x: wavelength values to use for plot (good to use binCenters)
-    '''
-
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(12,4))
-    for k in spec.keys():
-        if binCenters: x = binCenters[k]
-        else: x = spec[k].waveset
-
-        y = spec[k]
-        if spec_allchan is not None: y *= spec_allchan
-
-        if binned:
-            y = y(x ,flux_unit='count', area=telescope_Area)
-            ax.plot(x ,y ,drawstyle='steps-mid', label=k ,color=channelColor[k])
-        else:
-            y = y(x)
-            ax.plot(x, y ,label=k ,color=channelColor[k])
-
-    ax.set_ylabel('Flux (%s)' % y[0].unit ) #evaluate the spectrum once to get units
-    ax.set_xlim(totalRange)
-    ax.legend()    
-    
-    if lambda_range is not None:
-        ax.axvspan(lambda_range[0], lambda_range[1], alpha=0.2, color='grey') # shade user range
-
 
 # Tools for pre-tabulating Moffat profile integrals
 
