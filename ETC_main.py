@@ -35,6 +35,17 @@ throughput_slicerOptics = LoadCSVSpec(throughputFile_slicer)
 # tt.stop('Setup')
 
 ''' MAIN FUNCTION RETURNS DICT OF RESULTS '''
+_SKY_TEMPLATE = {}
+def _skyTemplate(skyfilter):
+    '''(sky template spectrum, its ABmag/arcsec^2 in the given Johnson filter); cached per filter'''
+    key = skyfilter.upper()
+    if key not in _SKY_TEMPLATE:
+        skySpec0 = SourceSpectrum.from_file(CSVdir+skybackground_file)
+        skyFilter = SpectralElement.from_filter('johnson_'+skyfilter.lower())  # e.g. 'johnson_r'
+        skyobs0 = Observation(skySpec0, skyFilter, force='taper')  # taper extends spectrum to 12000A to allow johnson_i mag
+        _SKY_TEMPLATE[key] = (skySpec0, skyobs0.effstim(u.ABmag).value)  # ABmag/arcsec^2
+    return _SKY_TEMPLATE[key]
+
 def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skyspec=None):
     '''
     skyspec = 2xN array tabulating a sky background spectrum; units = (nm , ergs/s/cm^2/Å )
@@ -74,12 +85,8 @@ def main(args ,quiet=False ,ETCextras=False ,plotSNR=False ,plotslit=False, skys
 
         # CSV file units = erg/s/cm^2/A/arcsec^2
         # synphot import below assumes "FLAM" (erg/s/cm^2/A) so the /arcsec^2 is only implied
-        skySpec0 = SourceSpectrum.from_file(CSVdir+skybackground_file) 
-
-        # Get template normalization in ABmag
-        skyFilter = SpectralElement.from_filter('johnson_'+args.skyfilter.lower()) # e.g. 'johnson_r'
-        skyobs0 = Observation(skySpec0, skyFilter, force='taper') # taper extends spectrum to 12000A to allow johnson_i mag
-        skymag0 = skyobs0.effstim(u.ABmag).value  # ABmag/arcsec^2
+        # Template and its ABmag normalization depend only on the sky filter; cache per filter
+        skySpec0, skymag0 = _skyTemplate(args.skyfilter)
 
         # Normalize the sky; new units = ABmag/arcsec^2 since skymag is really mag/arcsec^2
         skySpec = skySpec0 * 10.**((skymag0-args.skymag)/2.5)
