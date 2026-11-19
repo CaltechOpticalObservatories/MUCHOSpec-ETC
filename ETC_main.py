@@ -9,9 +9,6 @@
 ### K-CORRECTION
 # Clean up global-ish variables?
 
-# import sys
-# sys.path.append('./')
-
 from ETC.ETC_config import *
 from ETC.ETC_arguments import *
 from ETC.ETC_import import *

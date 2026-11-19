@@ -397,21 +397,6 @@ def convolveLSF(LSF, spectrum ,ch ,kernel_range_factor=4. ,wrange_=None):
         
     return newspec
 
-# UNUSED - utility only
-from scipy.special import gamma
-def sharpness_scalefree(theta, beta, x=0.):
-    ''' 1D sharpness of seeing-limited PSF (Moffat) along spatial direction
-    x = horizontal offset; changes y projection for e.g. side image slice
-    '''
-
-    # Normalization of PSF
-    integral1 = 3.14159**.5 * theta**(2*beta) * (theta**2+x**2)**(0.5-beta) * gamma(beta-0.5) / gamma(beta)
-
-    # Integral over PSF squared (sharpness)
-    integral2 = 3.14159**.5 * theta**(4*beta) * (theta**2+x**2)**(0.5-2*beta) * gamma(2*beta-0.5) / gamma(2*beta)
-
-    return integral2/integral1**2
-
 def slit_fraction(w_over_theta, beta=moffat_beta):
     """Fraction of Moffat PSF transmitted through slit of width w centered on source."""
     xi = w_over_theta / 2
@@ -790,40 +775,6 @@ def computeSNR(exptime, slitw, args, SSSfocalplane, allChans=False):
 
     # Return 1 number - the SNR caclulated from user input
     else: return SNR[args.channel].mean()
-
-def plotAllChannels(spec ,lambda_range=None ,binned=False ,spec_allchan=None ,binCenters=None):
-    '''
-    spec: dictionary with a spectrum for each channel
-    lambda_range: shade a wavelength range of interest
-    binned:  if true, calculate flux in counts; otherwise use flux density
-    spec_allchan: multiply spectra in all channels by this spectrum (bandpass)
-    x: wavelength values to use for plot (good to use binCenters)
-    '''
-
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(12,4))
-    for k in spec.keys():
-        if binCenters: x = binCenters[k]
-        else: x = spec[k].waveset
-
-        y = spec[k]
-        if spec_allchan is not None: y *= spec_allchan
-
-        if binned:
-            y = y(x ,flux_unit='count', area=telescope_Area)
-            ax.plot(x ,y ,drawstyle='steps-mid', label=k ,color=channelColor[k])
-        else:
-            y = y(x)
-            ax.plot(x, y ,label=k ,color=channelColor[k])
-
-    ax.set_ylabel('Flux (%s)' % y[0].unit ) #evaluate the spectrum once to get units
-    ax.set_xlim(totalRange)
-    ax.legend()    
-    
-    if lambda_range is not None:
-        ax.axvspan(lambda_range[0], lambda_range[1], alpha=0.2, color='grey') # shade user range
-
 
 # Tools for pre-tabulating Moffat profile integrals
 
