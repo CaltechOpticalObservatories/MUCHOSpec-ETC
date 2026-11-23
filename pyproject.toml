@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muchospec-etc"
+version = "0.1.0"
+description = "Exposure Time Calculator (ETC) for the MUCHOSpec / NGPS spectrograph at Palomar"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  {name = "Chaz Shapiro"}
+]
+maintainers = [
+  {name = "Prakriti Gupta"}
+]
+keywords = ["astronomy", "spectroscopy", "exposure time calculator", "Palomar"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Astronomy",
+]
+dependencies = [
+  "numpy",
+  # On Python 3.9 pip picks an astropy release that predates numpy 2 support (astropy 6.1 is the
+  # first numpy-2-compatible release and requires Python 3.10), so cap numpy there.
+  # Python 3.9 is needed for CentOS 7 deployments.
+  "numpy<2; python_version < '3.10'",
+  "scipy",
+  "astropy",
+  "synphot",
+]
+
+[project.optional-dependencies]
+# Needed for -plotSNR / -plotslit
+plots = ["matplotlib"]
+dev = [
+  "matplotlib",
+  "pytest",
+  "black",
+  "flake8",
+]
+
+[project.urls]
+Repository = "https://github.com/CaltechOpticalObservatories/MUCHOSpec-ETC"
+"Bug Tracker" = "https://github.com/CaltechOpticalObservatories/MUCHOSpec-ETC/issues"
+
+[project.scripts]
+muchospec-etc = "ETC.ETC_main:cli"
+
+[tool.setuptools.packages.find]
+# Data directories inside ETC/ (CSV, sources) are picked up as namespace packages
+include = ["ETC", "ETC.*"]
+
+[tool.setuptools.package-data]
+# Instrument data files shipped with the package
+ETC = [
+  "CSV/*.csv",
+  "moffat_table_beta*.npz",
+  "sources/*",
+  "sources/*/*",
+]
