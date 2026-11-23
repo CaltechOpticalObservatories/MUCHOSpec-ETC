@@ -42,7 +42,9 @@ jobs:
   test:
     name: Test install (Python ${{ matrix.python-version }})
     needs: build
-    runs-on: ubuntu-latest
+    # Pinned: setup-python has no Python 3.9 builds for Ubuntu 26.04 (ubuntu-latest is moving to it).
+    # Python 3.9 is kept for CentOS 7 deployments.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
