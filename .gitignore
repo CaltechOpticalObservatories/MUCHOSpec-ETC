@@ -1,8 +1,15 @@
 .*
 !.gitignore
+!.github/
 *.png
 __pycache__/
 sources/current_calspec_all/*
 old/
 skybrightness/
 scratch/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+venv/

@@ -1023,7 +1023,7 @@ def float_to_pstring(value):
     return f"{integer_part}p{decimal_part:03d}"
 
 moffile = f"moffat_table_beta{float_to_pstring(moffat_beta)}.npz"
-Moffat_table = load_moffat_table(moffile)
+Moffat_table = load_moffat_table(path.join(ETCdir, moffile))
 
 ## USE THIS TO GENERATE AN INTEGRAL TABLE FOR A NEW VALUE OF MOFFAT_BETA
 # print(moffile)

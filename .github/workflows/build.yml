@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check that data files are in the wheel
+        run: |
+          python - <<'EOF'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("dist/*.whl")[0]).namelist()
+          for pattern in ("ETC/CSV/", "ETC/sources/", "ETC/moffat_table_beta"):
+              n = sum(name.startswith(pattern) for name in names)
+              print(f"{pattern}: {n} files")
+              assert n > 0, f"No files matching {pattern} in wheel"
+          EOF
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  test:
+    name: Test install (Python ${{ matrix.python-version }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.12", "3.14"]
+    steps:
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install wheel
+        run: python -m pip install dist/*.whl
+
+      # Run from a directory outside the repo so the installed package is the one tested
+      - name: Smoke test command-line tool
+        working-directory: ${{ runner.temp }}
+        run: |
+          muchospec-etc -h
+          muchospec-etc R 650 660 EXPTIME 300 -slit LOSS 20 -seeing 1 640 -airmass 1.2 \
+            -skymag 21 -mag 19 -magsystem AB -magfilter R -model template spiral_001
+          python -m ETC G 500 510 EXPTIME 60 -slit SET 0.5 -seeing 1 640 -airmass 1 \
+            -skymag 21.4 -mag 18 -magsystem AB -magfilter match

@@ -333,16 +333,17 @@ def runETC(row ,check=False, skyspec=None):
 
 
 
-if __name__ == "__main__":
+def cli(argv=None):
+    '''Command-line entry point (installed as the `muchospec-etc` command)'''
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Check for valid inputs; append units
     try: check_inputs_add_units(args)
     except Exception as e: parser.error(e)  # Exit gracefully
 
     if args.timer:
-        from timer import Timer
+        from ETC.timer import Timer
         tt = Timer()
         tt.start()
 
@@ -356,7 +357,7 @@ if __name__ == "__main__":
     if args.plotSNR or args.plotslit:
         print('Plotting...')
 
-        from ETC.ETC_plots import *
+        from ETC.ETC_plots import plotSNR_vs_slit
         import matplotlib.pyplot as plt
         #matplotlib.rcParams.update({'font.size': 14})
         from astropy.visualization import astropy_mpl_style, quantity_support
@@ -424,3 +425,7 @@ if __name__ == "__main__":
         args.slitmode = 'SNR'
         args.slit = 90  # dummy value
         plotSNR_vs_slit(args, plt)
+
+
+if __name__ == "__main__":
+    cli()
